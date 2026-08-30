@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 class ProcessBatchResponse(BaseModel):
@@ -16,24 +16,54 @@ class ProcessBatchResponse(BaseModel):
     net_value_recovered: float
     roi_multiplier: float
 
-class AuditLogSchema(BaseModel):
-    id: int
+class WebhookPaymentFailedRequest(BaseModel):
     transaction_id: str
+    customer_id: str
+    amount: float
+    failure_reason: str
+    payment_method: Optional[str] = "card"
+    ip_address: Optional[str] = None
+    device_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+class WebhookRecoveryResponse(BaseModel):
+    transaction_id: str
+    lifecycle_state: str
+    diagnosis: str
+    risk_level: str
+    recommended_action: str
+    action_executed: bool
+    recovery_status: str
+    amount_recovered: float
+    execution_mode: str = "SIMULATED_TEST_MODE"
+    idempotency_key: Optional[str] = None
+
+class AuditLogSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_id: Optional[str] = None
+    transaction_id: str
+    actor: Optional[str] = "AI_AGENT"
+    event_type: Optional[str] = "RECOVERY_ACTION"
     agent_decision: str
     reasoning: str
-    tokens_used: int
-    cost_inr: float
+    previous_state: Optional[str] = None
+    new_state: Optional[str] = None
+    tokens_used: int = 0
+    cost_inr: float = 0.0
+    amount_recovered: float = 0.0
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
-
 class EscalationQueueItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     customer_id: str
     amount: float
     status: str
     failure_reason: Optional[str] = None
+    payment_method: Optional[str] = "card"
     retry_count: int
     ip_address: Optional[str] = None
     device_id: Optional[str] = None
@@ -44,9 +74,6 @@ class EscalationQueueItem(BaseModel):
     reviewed_at: Optional[datetime] = None
     created_at: datetime
     latest_audit_reason: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 class ReviewEscalationRequest(BaseModel):
     action: str  # 'APPROVE_RETRY', 'APPROVE_PAYMENT_LINK', 'REJECT'
@@ -63,3 +90,10 @@ class ROIMetricsResponse(BaseModel):
     escalated_count: int
     fraud_rings_prevented_count: int
     total_processed: int
+
+class BenchmarkResponse(BaseModel):
+    test_sample_size: int
+    comparison: List[Dict[str, Any]]
+    lift_over_naive_inr: float
+    lift_over_rules_inr: float
+    relative_recovery_rate_lift_pct: float

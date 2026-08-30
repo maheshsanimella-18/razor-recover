@@ -1,6 +1,6 @@
 import random
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from database.session import engine, Base, SessionLocal
 from database.models import Transaction, AuditLog
 
@@ -10,6 +10,9 @@ Base.metadata.create_all(bind=engine)
 
 def generate_mock_data(num_records=1000):
     db = SessionLocal()
+    
+    failure_reasons = ['insufficient_balance', 'network_timeout', 'invalid_card', 'otp_abandoned', 'suspected_fraud']
+    payment_methods = ['upi', 'card', 'netbanking', 'mandate']
     
     # Generate entity pools to simulate network graphs & shared attributes
     customer_pool = [f"cust_{i}" for i in range(100, 350)]
@@ -27,17 +30,19 @@ def generate_mock_data(num_records=1000):
         
         # Simulate syndicate cluster membership (~4% of total traffic)
         is_syndicate = random.random() < 0.04
+        method = random.choice(payment_methods)
         
         if is_syndicate:
             customer_id = f"cust_bad_{random.randint(1, 10)}"
             ip_address = random.choice(fraud_syndicate_ips)
             device_id = random.choice(fraud_syndicate_devices)
-            
-            # The syndicate node can be an explicit 'suspected_fraud' or a disguised failure sharing the device/IP
             is_failed = True
-            reason = "suspected_fraud" if random.random() < 0.6 else random.choice(['invalid_card', 'insufficient_balance'])
+            reason = "suspected_fraud" if random.random() < 0.65 else random.choice(['invalid_card', 'insufficient_balance'])
             status = "failed"
-            amount = round(random.uniform(7000.0, 25000.0), 2)
+            amount = round(random.uniform(7000.0, 28000.0), 2)
+            tenure = random.randint(1, 3)
+            past_success_rate = round(random.uniform(0.1, 0.4), 2)
+            past_fails = random.randint(3, 8)
         else:
             customer_id = random.choice(customer_pool)
             ip_address = random.choice(ip_pool)
@@ -46,22 +51,32 @@ def generate_mock_data(num_records=1000):
             # Simulate standard 18% failure rate
             is_failed = random.random() < 0.18
             status = 'failed' if is_failed else 'success'
-            reason = random.choice(['insufficient_balance', 'network_timeout', 'invalid_card']) if is_failed else None
-            amount = round(random.uniform(500.0, 15000.0), 2)
+            reason = random.choice(['insufficient_balance', 'network_timeout', 'invalid_card', 'otp_abandoned']) if is_failed else None
+            amount = round(random.uniform(500.0, 16000.0), 2)
+            tenure = random.randint(4, 48)
+            past_success_rate = round(random.uniform(0.70, 0.98), 2)
+            past_fails = random.randint(0, 2)
             
         txn = Transaction(
             id=txn_id,
             customer_id=customer_id,
             amount=amount,
+            currency="INR",
             status=status,
+            lifecycle_state="AT_RISK" if is_failed else "RECOVERED",
             failure_reason=reason,
+            payment_method=method,
             retry_count=0,
+            customer_tenure_months=tenure,
+            past_success_rate=past_success_rate,
+            past_failed_attempts=past_fails,
+            risk_score=0.5,
             ip_address=ip_address,
             device_id=device_id,
-            is_fraud_ring=False,       # Set dynamically during graph analysis
-            queue_status="NONE",       # Transitions to 'PENDING_REVIEW' on escalation
+            is_fraud_ring=False,
+            queue_status="NONE",
             reviewer_notes=None,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         db.add(txn)
         
@@ -71,6 +86,9 @@ def generate_mock_data(num_records=1000):
             "amount": amount, 
             "status": status, 
             "failure_reason": reason,
+            "payment_method": method,
+            "customer_tenure_months": tenure,
+            "past_success_rate": past_success_rate,
             "ip_address": ip_address,
             "device_id": device_id,
             "is_fraud_ring": False,
@@ -82,7 +100,7 @@ def generate_mock_data(num_records=1000):
     
     df = pd.DataFrame(transactions)
     df.to_csv('data/synthetic_transactions.csv', index=False)
-    print(f"Success! Generated {num_records} fresh transactions with graph network attributes.")
+    print(f"Success! Generated {num_records} fresh transactions with rich behavioral & graph network attributes.")
 
 if __name__ == "__main__":
     generate_mock_data()

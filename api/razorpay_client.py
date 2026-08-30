@@ -1,18 +1,9 @@
-import random
+"""
+Razorpay Payment Gateway Interface.
+Delegates to closed-loop payment simulator in test mode.
+"""
 
-class RazorpaySimulator:
-    """
-    Simulates Razorpay Payment Retry & Payment Link APIs.
-    In real production, this connects to Razorpay's Test Mode API.
-    """
-    @staticmethod
-    def execute_retry(amount: float, recovery_probability: float) -> bool:
-        """Simulates automated charge retry outcome based on calculated probability."""
-        return random.random() < recovery_probability
+from core.simulator import payment_simulator
 
-    @staticmethod
-    def send_payment_link(amount: float) -> bool:
-        """Simulates customer paying via sent SMS/Email payment link (45% baseline conversion)."""
-        return random.random() < 0.45
-
-razorpay_gateway = RazorpaySimulator()
+# Alias for backwards compatibility
+razorpay_gateway = payment_simulator

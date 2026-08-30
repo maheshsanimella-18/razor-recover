@@ -1,21 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
+import uuid
 
 from database.session import get_db
 from database.models import Transaction, AuditLog
 from core.risk_model import risk_scorer
-from core.stopping_rules import evaluate_safety_guardrails
-from core.agent import diagnose_and_decide
+from core.policy import policy_engine
+from core.agent import recovery_agent
 from core.fraud_graph import fraud_graph_detector
-from api.razorpay_client import razorpay_gateway
+from core.simulator import payment_simulator
+from core.state_machine import state_machine, TransactionState
+from core.tools import record_audit_event, get_customer_history, execute_bounded_action
+from core.demo import run_safe_recovery_demo, run_fraud_block_demo
+from core.benchmark import BenchmarkRunner
 from api.schemas import (
     ProcessBatchResponse, 
     AuditLogSchema, 
     EscalationQueueItem, 
     ReviewEscalationRequest, 
-    ROIMetricsResponse
+    ROIMetricsResponse,
+    WebhookPaymentFailedRequest,
+    WebhookRecoveryResponse,
+    BenchmarkResponse
 )
 
 router = APIRouter()
@@ -23,14 +31,13 @@ router = APIRouter()
 @router.post("/process-batch", response_model=ProcessBatchResponse)
 def process_failed_batch(db: Session = Depends(get_db)):
     """
-    Autonomous Recovery Pipeline:
-    1. Builds real-time entity graph for networked fraud detection.
-    2. Flags & isolates syndicated fraud rings (hard escalation, bypassing LLM).
-    3. Runs ML risk scoring & safety guardrails.
-    4. Invokes bounded Gemini decision agent with token/cost tracking.
-    5. Dispatches bounded payment recovery interventions and populates HITL queue.
+    Autonomous Closed-Loop Revenue Recovery Pipeline:
+    1. Builds/refreshes entity graph to isolate syndicated fraud clusters (bypassing LLM).
+    2. Gathers customer history and computes ML risk score.
+    3. Executes structured Gemini diagnosis agent.
+    4. Validates decision against deterministic policy engine.
+    5. Dispatches bounded recovery action, updates state machine, and records audit trail.
     """
-    # Build/refresh in-memory entity graph
     fraud_graph_detector.build_graph_from_db(db)
 
     failed_txns = db.query(Transaction).filter(Transaction.status == "failed").all()
@@ -55,96 +62,128 @@ def process_failed_batch(db: Session = Depends(get_db)):
 
         if is_fraud_connected:
             txn.is_fraud_ring = True
+            txn.status = "escalated"
+            txn.lifecycle_state = TransactionState.ESCALATED.value
             txn.queue_status = "PENDING_REVIEW"
-            txn.escalated_at = datetime.utcnow()
+            txn.escalated_at = datetime.now(timezone.utc)
             stopped_or_escalated += 1
             fraud_rings_isolated += 1
 
             fraud_msg = (
                 f"NETWORKED_FRAUD_DETECTED: Connected to {cluster_details['connected_fraud_count']} "
-                f"known fraud node(s) across shared infrastructure (IP: {txn.ip_address}, Device: {txn.device_id}). "
-                f"Cluster Size: {cluster_details['total_cluster_size']}. Bypassed LLM."
+                f"fraud node(s) across shared entity infrastructure (IP: {txn.ip_address}, Device: {txn.device_id}). "
+                f"Bypassed LLM."
             )
-            log = AuditLog(
-                transaction_id=txn.id,
-                agent_decision="BLOCKED_FRAUD_GRAPH",
+            record_audit_event(
+                db=db,
+                txn_id=txn.id,
+                actor="SAFETY_GUARDRAIL",
+                event_type="FRAUD_GATE_TRIGGERED",
+                decision="BLOCKED_FRAUD_GRAPH",
                 reasoning=fraud_msg,
-                tokens_used=0,
+                prev_state=TransactionState.AT_RISK.value,
+                new_state=TransactionState.ESCALATED.value,
+                tokens=0,
                 cost_inr=0.0
             )
-            db.add(log)
             continue
 
-        # Step 2: ML Recovery Probability Scoring
+        # Step 2: Customer History & ML Risk Probability Scoring
+        cust_profile = get_customer_history(txn.customer_id, db)
         rec_prob = risk_scorer.predict_recovery_probability(
-            txn.failure_reason, txn.amount, txn.retry_count
-        )
-
-        # Step 3: Hard Safety Guardrails & Stopping Rules
-        is_safe, safety_msg = evaluate_safety_guardrails(
-            retry_count=txn.retry_count,
+            failure_reason=txn.failure_reason or "unknown",
             amount=txn.amount,
-            failure_reason=txn.failure_reason,
+            retry_count=txn.retry_count,
+            payment_method=txn.payment_method or "card",
+            customer_tenure_months=cust_profile.get("tenure_months", 12),
+            past_success_rate=cust_profile.get("success_rate", 0.85)
+        )
+        txn.risk_score = rec_prob
+
+        # Step 3: Structured Gemini Agent Diagnosis
+        summary_str = f"Tenure: {cust_profile.get('tenure_months')}mo, Success Rate: {cust_profile.get('success_rate')*100:.0f}%, Tier: {cust_profile.get('reliability_tier')}"
+        decision_obj, tokens_used, cost_inr = recovery_agent.diagnose_and_decide(
+            transaction_id=txn.id,
+            amount=txn.amount,
+            failure_reason=txn.failure_reason or "unknown",
+            recovery_prob=rec_prob,
+            customer_summary=summary_str,
+            payment_method=txn.payment_method or "card",
+            retry_count=txn.retry_count
+        )
+        total_batch_cost += cost_inr
+
+        # Step 4: Deterministic Policy Engine Validation
+        pol_res = policy_engine.evaluate_action(
+            action=decision_obj.recommended_action,
+            amount=txn.amount,
+            retry_count=txn.retry_count,
+            failure_reason=txn.failure_reason or "unknown",
             recovery_probability=rec_prob,
             is_fraud_connected=False
         )
 
-        if not is_safe:
+        if not pol_res.is_allowed or pol_res.requires_human_escalation:
             stopped_or_escalated += 1
+            txn.status = "escalated"
+            txn.lifecycle_state = TransactionState.ESCALATED.value
             txn.queue_status = "PENDING_REVIEW"
-            txn.escalated_at = datetime.utcnow()
-            log = AuditLog(
-                transaction_id=txn.id,
-                agent_decision="STOPPED_BY_GUARDRAIL",
-                reasoning=safety_msg,
-                tokens_used=0,
-                cost_inr=0.0
+            txn.escalated_at = datetime.now(timezone.utc)
+            
+            record_audit_event(
+                db=db,
+                txn_id=txn.id,
+                actor="POLICY_ENGINE",
+                event_type="POLICY_ESCALATION",
+                decision="STOPPED_BY_GUARDRAIL",
+                reasoning=f"Policy Block ({pol_res.policy_code}): {pol_res.reason}",
+                prev_state=TransactionState.AT_RISK.value,
+                new_state=TransactionState.ESCALATED.value,
+                tokens=tokens_used,
+                cost_inr=cost_inr
             )
-            db.add(log)
             continue
 
-        # Step 4: Gemini LLM Agent Diagnosis & Execution Strategy Selection
-        mock_history = f"Customer {txn.customer_id} has standard account activity."
-        decision, tokens_used, cost_inr = diagnose_and_decide(
-            txn.amount, txn.failure_reason, rec_prob, mock_history
+        # Step 5: Bounded Action Dispatch via Closed-Loop Simulator
+        action = decision_obj.recommended_action
+        sim_result = execute_bounded_action(
+            action=action,
+            txn_id=txn.id,
+            db=db,
+            recovery_prob=rec_prob
         )
-        total_batch_cost += cost_inr
+        
+        attempted += 1
+        is_success = sim_result.get("success", False)
 
-        # Step 5: Bounded Autonomous Action Dispatch
-        success = False
-        if decision in ["IMMEDIATE_RETRY", "DELAYED_RETRY"]:
-            attempted += 1
-            success = razorpay_gateway.execute_retry(txn.amount, rec_prob)
-        elif decision == "SEND_PAYMENT_LINK":
-            attempted += 1
-            success = razorpay_gateway.send_payment_link(txn.amount)
-        else:
-            # ESCALATE_TO_HUMAN
-            stopped_or_escalated += 1
-            txn.queue_status = "PENDING_REVIEW"
-            txn.escalated_at = datetime.utcnow()
-
-        # Step 6: State Transition & Audit Ledger Recording
-        if success:
+        # Step 6: State Machine Transition & Audit Recording
+        if is_success:
             txn.status = "recovered"
+            txn.lifecycle_state = TransactionState.RECOVERED.value
             txn.queue_status = "RESOLVED"
             recovered_count += 1
             revenue_recovered += txn.amount
-            log_reason = f"Decision: {decision}. Execution successful. ₹{txn.amount:,.2f} recovered."
-        elif decision != "ESCALATE_TO_HUMAN":
-            txn.retry_count += 1
-            log_reason = f"Decision: {decision}. Automated attempt failed on gateway (Retry #{txn.retry_count})."
+            log_reason = f"Decision: {action}. Captured ₹{txn.amount:,.2f}. Gateway Ref: {sim_result.get('gateway_reference_id')}."
+            new_st = TransactionState.RECOVERED.value
         else:
-            log_reason = f"Decision: ESCALATE_TO_HUMAN. Queued for manual operator investigation."
+            txn.retry_count += 1
+            txn.lifecycle_state = TransactionState.AT_RISK.value
+            log_reason = f"Decision: {action}. Gateway attempt failed ({sim_result.get('status_code')}). Retry #{txn.retry_count} recorded."
+            new_st = TransactionState.AT_RISK.value
 
-        log = AuditLog(
-            transaction_id=txn.id,
-            agent_decision=decision,
-            reasoning=log_reason,
-            tokens_used=tokens_used,
-            cost_inr=cost_inr
+        record_audit_event(
+            db=db,
+            txn_id=txn.id,
+            actor="AI_AGENT",
+            event_type="ACTION_COMPLETED",
+            decision=action,
+            reasoning=f"Diagnosis: {decision_obj.diagnosis} | Execution: {log_reason}",
+            prev_state=TransactionState.DIAGNOSING.value,
+            new_state=new_st,
+            tokens=tokens_used,
+            cost_inr=cost_inr,
+            amount_recovered=txn.amount if is_success else 0.0
         )
-        db.add(log)
 
     db.commit()
 
@@ -167,6 +206,182 @@ def process_failed_batch(db: Session = Depends(get_db)):
         roi_multiplier=round(roi_mult, 1)
     )
 
+@router.post("/webhooks/payment-failed", response_model=WebhookRecoveryResponse)
+def handle_payment_failed_webhook(payload: WebhookPaymentFailedRequest, db: Session = Depends(get_db)):
+    """
+    Real-time Webhook Ingestion Endpoint:
+    Receives live payment failure webhooks from Razorpay, runs autonomous investigation,
+    and returns immediate intervention decision & execution status.
+    """
+    txn_id = payload.transaction_id
+    
+    # Upsert transaction
+    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
+    if not txn:
+        txn = Transaction(
+            id=txn_id,
+            customer_id=payload.customer_id,
+            amount=payload.amount,
+            currency="INR",
+            status="failed",
+            lifecycle_state=TransactionState.AT_RISK.value,
+            failure_reason=payload.failure_reason,
+            payment_method=payload.payment_method or "card",
+            retry_count=0,
+            ip_address=payload.ip_address,
+            device_id=payload.device_id,
+            queue_status="NONE",
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(txn)
+        db.commit()
+
+    # Step 1: Real-time Network Fraud Check
+    fraud_graph_detector.build_graph_from_db(db)
+    is_fraud, fraud_details = fraud_graph_detector.analyze_transaction_network(
+        txn_id=txn.id,
+        ip_address=txn.ip_address,
+        device_id=txn.device_id
+    )
+
+    if is_fraud:
+        txn.status = "escalated"
+        txn.lifecycle_state = TransactionState.ESCALATED.value
+        txn.queue_status = "PENDING_REVIEW"
+        txn.is_fraud_ring = True
+        db.commit()
+
+        record_audit_event(
+            db=db,
+            txn_id=txn.id,
+            actor="SAFETY_GUARDRAIL",
+            event_type="WEBHOOK_FRAUD_BLOCKED",
+            decision="BLOCKED_FRAUD_GRAPH",
+            reasoning=f"Webhook Event: Fraud syndicate cluster isolated ({fraud_details.get('connected_fraud_count')} nodes).",
+            new_state=TransactionState.ESCALATED.value
+        )
+
+        return WebhookRecoveryResponse(
+            transaction_id=txn.id,
+            lifecycle_state=TransactionState.ESCALATED.value,
+            diagnosis="Flagged as syndicate fraud cluster. Bypassed automated retry.",
+            risk_level="CRITICAL",
+            recommended_action="ESCALATE_TO_HUMAN",
+            action_executed=False,
+            recovery_status="ESCALATED_TO_HUMAN_QUEUE",
+            amount_recovered=0.0
+        )
+
+    # Step 2: ML Probability & Agent Decision
+    cust_profile = get_customer_history(txn.customer_id, db)
+    rec_prob = risk_scorer.predict_recovery_probability(
+        failure_reason=txn.failure_reason or "unknown",
+        amount=txn.amount,
+        retry_count=txn.retry_count,
+        payment_method=txn.payment_method or "card"
+    )
+
+    decision_obj, tokens, cost = recovery_agent.diagnose_and_decide(
+        transaction_id=txn.id,
+        amount=txn.amount,
+        failure_reason=txn.failure_reason or "unknown",
+        recovery_prob=rec_prob,
+        customer_summary=f"Tenure: {cust_profile.get('tenure_months')}mo, Success: {cust_profile.get('success_rate')*100:.0f}%",
+        payment_method=txn.payment_method or "card"
+    )
+
+    # Step 3: Policy Check
+    pol_res = policy_engine.evaluate_action(
+        action=decision_obj.recommended_action,
+        amount=txn.amount,
+        retry_count=txn.retry_count,
+        failure_reason=txn.failure_reason or "unknown",
+        recovery_probability=rec_prob
+    )
+
+    if not pol_res.is_allowed:
+        txn.status = "escalated"
+        txn.lifecycle_state = TransactionState.ESCALATED.value
+        txn.queue_status = "PENDING_REVIEW"
+        db.commit()
+
+        return WebhookRecoveryResponse(
+            transaction_id=txn.id,
+            lifecycle_state=TransactionState.ESCALATED.value,
+            diagnosis=decision_obj.diagnosis,
+            risk_level=decision_obj.risk_level,
+            recommended_action=decision_obj.recommended_action,
+            action_executed=False,
+            recovery_status="STOPPED_BY_POLICY",
+            amount_recovered=0.0
+        )
+
+    # Step 4: Dispatch Action
+    sim_res = execute_bounded_action(
+        action=decision_obj.recommended_action,
+        txn_id=txn.id,
+        db=db,
+        recovery_prob=rec_prob
+    )
+    is_success = sim_res.get("success", False)
+
+    if is_success:
+        txn.status = "recovered"
+        txn.lifecycle_state = TransactionState.RECOVERED.value
+        txn.queue_status = "RESOLVED"
+    else:
+        txn.retry_count += 1
+
+    db.commit()
+
+    record_audit_event(
+        db=db,
+        txn_id=txn.id,
+        actor="AI_AGENT",
+        event_type="WEBHOOK_RECOVERY_EXECUTED",
+        decision=decision_obj.recommended_action,
+        reasoning=f"Webhook Dispatch: {sim_res.get('message')}",
+        new_state=txn.lifecycle_state,
+        tokens=tokens,
+        cost_inr=cost,
+        amount_recovered=txn.amount if is_success else 0.0
+    )
+
+    return WebhookRecoveryResponse(
+        transaction_id=txn.id,
+        lifecycle_state=txn.lifecycle_state,
+        diagnosis=decision_obj.diagnosis,
+        risk_level=decision_obj.risk_level,
+        recommended_action=decision_obj.recommended_action,
+        action_executed=True,
+        recovery_status="RECOVERED" if is_success else "RETRY_DISPATCHED",
+        amount_recovered=txn.amount if is_success else 0.0,
+        idempotency_key=txn.idempotency_key
+    )
+
+@router.post("/demo/run")
+def execute_pitch_demo(scenario: str = Query("A", description="Scenario 'A' (Safe Recovery) or 'B' (Fraud Block)"), db: Session = Depends(get_db)):
+    """Executes a 100% deterministic pitch scenario for 5-minute competition presentations."""
+    if scenario.upper() == "A":
+        return run_safe_recovery_demo(db)
+    elif scenario.upper() == "B":
+        return run_fraud_block_demo(db)
+    else:
+        return {
+            "scenario_a": run_safe_recovery_demo(db),
+            "scenario_b": run_fraud_block_demo(db)
+        }
+
+@router.get("/benchmarks", response_model=BenchmarkResponse)
+def get_benchmarks(samples: int = 500):
+    """Returns honest, reproducible empirical benchmark evaluation comparing Naive, Rules, and AI Agent."""
+    return BenchmarkRunner.run_full_benchmark(n_samples=samples)
+
+@router.get("/model-metrics")
+def get_ml_model_metrics():
+    """Returns held-out test evaluation metrics for the ML Random Forest risk scorer."""
+    return risk_scorer.get_evaluation_metrics()
+
 @router.get("/escalation-queue", response_model=List[EscalationQueueItem])
 def get_escalation_queue(
     status: str = Query("PENDING_REVIEW", description="Queue status filter"),
@@ -181,7 +396,6 @@ def get_escalation_queue(
     
     response = []
     for item in escalated_items:
-        # Fetch the most recent audit log entry for this transaction
         latest_log = (
             db.query(AuditLog)
             .filter(AuditLog.transaction_id == item.id)
@@ -195,6 +409,7 @@ def get_escalation_queue(
             amount=item.amount,
             status=item.status,
             failure_reason=item.failure_reason,
+            payment_method=item.payment_method or "card",
             retry_count=item.retry_count,
             ip_address=item.ip_address,
             device_id=item.device_id,
@@ -222,21 +437,26 @@ def review_escalated_transaction(
 
     action = payload.action.upper()
     notes = payload.reviewer_notes or "Review decision submitted via Escalation Queue"
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     if action in ["APPROVE_RETRY", "APPROVE_PAYMENT_LINK", "APPROVE"]:
-        # Human approved recovery intervention
-        rec_prob = risk_scorer.predict_recovery_probability(txn.failure_reason, txn.amount, txn.retry_count)
+        rec_prob = risk_scorer.predict_recovery_probability(
+            failure_reason=txn.failure_reason or "unknown",
+            amount=txn.amount,
+            retry_count=txn.retry_count
+        )
         
         if "LINK" in action:
-            success = razorpay_gateway.send_payment_link(txn.amount)
+            sim_res = payment_simulator.send_payment_link(txn.amount, customer_id=txn.customer_id)
             exec_method = "PAYMENT_LINK"
         else:
-            success = razorpay_gateway.execute_retry(txn.amount, rec_prob)
+            sim_res = payment_simulator.execute_retry(txn.amount, recovery_probability=rec_prob)
             exec_method = "MANUAL_RETRY"
 
-        if success:
+        is_success = sim_res.success
+        if is_success:
             txn.status = "recovered"
+            txn.lifecycle_state = TransactionState.RECOVERED.value
             txn.queue_status = "APPROVED"
             result_msg = f"Human Approved ({exec_method}). Successfully recovered ₹{txn.amount:,.2f}."
         else:
@@ -247,37 +467,42 @@ def review_escalated_transaction(
         txn.reviewed_at = now
         txn.reviewer_notes = f"{notes} | {result_msg}"
 
-        log = AuditLog(
-            transaction_id=txn.id,
-            agent_decision=f"HUMAN_APPROVED_{exec_method}",
+        record_audit_event(
+            db=db,
+            txn_id=txn.id,
+            actor="HUMAN_OPERATOR",
+            event_type="HUMAN_INTERVENTION",
+            decision=f"HUMAN_APPROVED_{exec_method}",
             reasoning=f"Operator Action: {notes}. Execution: {result_msg}",
-            tokens_used=0,
-            cost_inr=0.0
+            new_state=txn.lifecycle_state,
+            amount_recovered=txn.amount if is_success else 0.0
         )
-        db.add(log)
         db.commit()
 
         return {
             "status": "success",
             "transaction_id": txn_id,
             "queue_status": txn.queue_status,
-            "recovered": success,
+            "recovered": is_success,
             "message": result_msg
         }
 
     elif action == "REJECT":
+        txn.status = "stopped"
+        txn.lifecycle_state = TransactionState.STOPPED.value
         txn.queue_status = "REJECTED"
         txn.reviewed_at = now
         txn.reviewer_notes = f"{notes} | Escalation Rejected. Transaction marked unrecoverable/blocked."
 
-        log = AuditLog(
-            transaction_id=txn.id,
-            agent_decision="HUMAN_REJECTED",
+        record_audit_event(
+            db=db,
+            txn_id=txn.id,
+            actor="HUMAN_OPERATOR",
+            event_type="HUMAN_REJECTION",
+            decision="HUMAN_REJECTED",
             reasoning=f"Operator Rejected: {notes}",
-            tokens_used=0,
-            cost_inr=0.0
+            new_state=TransactionState.STOPPED.value
         )
-        db.add(log)
         db.commit()
 
         return {
@@ -302,7 +527,7 @@ def get_roi_metrics(db: Session = Depends(get_db)):
     total_tokens = sum(log.tokens_used or 0 for log in all_logs)
     total_cost = sum(log.cost_inr or 0.0 for log in all_logs)
     
-    # Add nominal simulated gateway API cost for attempts (~₹0.05 per retry attempt)
+    # Nominal gateway API cost (~₹0.05 per retry attempt)
     attempt_count = sum(1 for log in all_logs if "RETRY" in log.agent_decision or "LINK" in log.agent_decision)
     gateway_cost = attempt_count * 0.05
     total_operational_cost = total_cost + gateway_cost
@@ -338,4 +563,4 @@ def get_fraud_network_topology(limit: int = 70, db: Session = Depends(get_db)):
 
 @router.get("/audit-logs", response_model=List[AuditLogSchema])
 def get_audit_logs(limit: int = 50, db: Session = Depends(get_db)):
-    return db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
+    return db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
