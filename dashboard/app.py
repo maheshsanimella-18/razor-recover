@@ -71,15 +71,6 @@ st.sidebar.divider()
 st.sidebar.subheader("⚙️ System Status")
 st.sidebar.markdown("🟢 **Gateway:** Test Simulation Mode")
 
-st.sidebar.divider()
-
-st.sidebar.subheader("🎬 Demo & Simulation")
-if st.sidebar.button("▶ Run Demo", use_container_width=True):
-    with st.spinner("Running Safe Recovery Pitch Demo..."):
-        res = requests.post(f"{API_BASE_URL}/demo/run?scenario=A")
-        if res.status_code == 200:
-            st.toast("Demo Scenario Completed: ₹12,500 Recovered!", icon="🎬")
-            st.rerun()
 
 
 # --- Navigation Tabs ---
