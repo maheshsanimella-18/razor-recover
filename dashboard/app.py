@@ -1,7 +1,8 @@
 """
 RazorRecover Control Center — Autonomous AI Revenue Recovery Platform.
 Production-grade dashboard showcasing Executive ROI, Live Operations, 
-Agent Decision Traces, HITL Exception Queue, Fraud Topology, and Empirical Benchmarks.
+Agent Decision Traces, HITL Exception Queue, Fraud Topology, Empirical Benchmarks,
+and Interactive Deterministic Demos.
 """
 
 import os
@@ -20,9 +21,7 @@ st.set_page_config(
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000/api").rstrip("/")
 
-
-
-# --- Header & Pitch Banner ---
+# --- Header & Banner ---
 st.markdown("""
 <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 18px 24px; border-radius: 12px; border-left: 6px solid #3b82f6; margin-bottom: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -51,8 +50,8 @@ def fetch_api(endpoint: str, timeout: int = 5):
 
 roi_data = fetch_api("roi-metrics")
 
-# --- Sidebar Controls ---
-st.sidebar.title("🕹️ Agent Operations")
+# --- Sidebar: Operational Navigation & Actions ---
+st.sidebar.title("🕹️ Control Center")
 st.sidebar.markdown("Orchestrate autonomous diagnosis, fraud gate isolation, and bounded interventions.")
 
 if st.sidebar.button("🚀 Trigger AI Recovery Batch", type="primary", use_container_width=True):
@@ -70,24 +69,16 @@ if st.sidebar.button("🚀 Trigger AI Recovery Batch", type="primary", use_conta
 
 st.sidebar.divider()
 
-# --- 1-Click Deterministic Demo Trigger ---
-st.sidebar.subheader("🎯 5-Minute Pitch Demo")
-st.sidebar.caption("Deterministic scenarios guaranteed to run seamlessly:")
-
-demo_col1, demo_col2 = st.sidebar.columns(2)
-if demo_col1.button("Scenario A: Recovery", use_container_width=True, help="High-value failure -> Diagnosed -> Delayed Retry -> Recovered ₹12,500"):
-    with st.spinner("Running Safe Recovery Scenario..."):
-        res = requests.post(f"{API_BASE_URL}/demo/run?scenario=A")
-        if res.status_code == 200:
-            st.toast("Scenario A Completed: ₹12,500 Recovered!", icon="✅")
-            st.rerun()
-
-if demo_col2.button("Scenario B: Fraud Gate", use_container_width=True, help="Fraud Syndicate cluster -> Graph Gate -> LLM Bypassed -> Hard Escalated"):
-    with st.spinner("Running Fraud Block Scenario..."):
-        res = requests.post(f"{API_BASE_URL}/demo/run?scenario=B")
-        if res.status_code == 200:
-            st.toast("Scenario B Completed: Fraud Cluster Blocked & Escalated!", icon="🛡️")
-            st.rerun()
+st.sidebar.markdown("### 🧭 Platform Navigation")
+st.sidebar.markdown("""
+- **📊 Executive ROI** — Financial metrics & unit economics
+- **⚡ Live Operations** — Real-time transaction ledger
+- **🧠 Agent Decision Trace** — Observable diagnostic evidence
+- **🛡️ HITL Queue** — Manual operator triage workbench
+- **🏆 Baseline Benchmarks** — 3-way empirical comparison
+- **🕸️ Fraud Network** — Graph syndicate topology
+- **🎬 Demo & Simulation** — 1-click pitch scenarios
+""")
 
 st.sidebar.divider()
 st.sidebar.markdown("### 💡 Core System Pillars")
@@ -98,13 +89,14 @@ st.sidebar.info(
 )
 
 # --- Navigation Tabs ---
-tab_exec, tab_ops, tab_trace, tab_queue, tab_bench, tab_graph = st.tabs([
+tab_exec, tab_ops, tab_trace, tab_queue, tab_bench, tab_graph, tab_demo = st.tabs([
     "📊 Executive ROI",
     "⚡ Live Operations",
     "🧠 Agent Decision Trace",
     "🛡️ HITL Queue",
     "🏆 Baseline Benchmarks",
-    "🕸️ Fraud Network"
+    "🕸️ Fraud Network",
+    "🎬 Demo & Simulation"
 ])
 
 # =========================================================
@@ -218,7 +210,7 @@ with tab_trace:
             st.markdown("#### 📜 Diagnostic & Policy Breakdown")
             st.info(f"**Evidence Trace:**\n\n{latest.get('reasoning')}")
         else:
-            st.warning(f"No specific logs found for '{selected_txn}'. Try running the pitch demo in the sidebar!")
+            st.warning(f"No specific logs found for '{selected_txn}'. Try running a scenario from the 'Demo & Simulation' tab!")
 
 # =========================================================
 # TAB 4: HUMAN-IN-THE-LOOP (HITL) QUEUE
@@ -358,3 +350,56 @@ with tab_graph:
                 use_container_width=True,
                 hide_index=True
             )
+
+# =========================================================
+# TAB 7: DEMO & SIMULATION (SEPARATE DEDICATED TAB)
+# =========================================================
+with tab_demo:
+    st.subheader("🎬 Demo & Simulation")
+    st.caption("Reproducible demo scenarios for evaluating revenue recovery and safety controls.")
+
+    demo_c1, demo_c2 = st.columns(2)
+
+    with demo_c1:
+        st.markdown("""
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid #10b981; border-radius: 10px; padding: 18px; margin-bottom: 15px;">
+            <h4 style="color: #10b981; margin: 0 0 8px 0;">Scenario A: Autonomous Revenue Recovery</h4>
+            <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 12px;">
+                Demonstrates high-tenure customer recovery: Contextual observation → ML Probability (82%) → Delayed Retry → <b>₹12,500 Recaptured</b>.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("▶️ Run Scenario A: Recovery", type="primary", use_container_width=True):
+            with st.spinner("Executing Scenario A (Safe Recovery Pipeline)..."):
+                res = requests.post(f"{API_BASE_URL}/demo/run?scenario=A")
+                if res.status_code == 200:
+                    data = res.json()
+                    st.success(f"✅ Success: Recaptured ₹{data['amount_recovered']:,.2f} on Transaction `{data['transaction_id']}`!")
+                    st.markdown("##### 📜 Execution Trace:")
+                    for step in data.get("trace", []):
+                        st.markdown(f"• **`{step['step']}`**: {step['detail']}")
+                else:
+                    st.error(f"API Error: {res.text}")
+
+    with demo_c2:
+        st.markdown("""
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 10px; padding: 18px; margin-bottom: 15px;">
+            <h4 style="color: #ef4444; margin: 0 0 8px 0;">Scenario B: Fraud Syndicate Safety Gate</h4>
+            <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 12px;">
+                Demonstrates zero-trust defense: Shared device/IP network detected → <b>LLM Bypassed</b> → Autonomous retry blocked → Escalated to HITL.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("🛡️ Run Scenario B: Fraud Gate", use_container_width=True):
+            with st.spinner("Executing Scenario B (Fraud Block Pipeline)..."):
+                res = requests.post(f"{API_BASE_URL}/demo/run?scenario=B")
+                if res.status_code == 200:
+                    data = res.json()
+                    st.warning(f"🚨 Blocked: Flagged `{data['transaction_id']}` (₹{data['amount_at_risk']:,.2f}) as Syndicate Node!")
+                    st.markdown("##### 📜 Execution Trace:")
+                    for step in data.get("trace", []):
+                        st.markdown(f"• **`{step['step']}`**: {step['detail']}")
+                else:
+                    st.error(f"API Error: {res.text}")
