@@ -50,9 +50,8 @@ def fetch_api(endpoint: str, timeout: int = 5):
 
 roi_data = fetch_api("roi-metrics")
 
-# --- Sidebar: Operational Navigation & Actions ---
-st.sidebar.title("🕹️ Control Center")
-st.sidebar.markdown("Orchestrate autonomous diagnosis, fraud gate isolation, and bounded interventions.")
+# --- Sidebar: Minimal Operational Control Center ---
+st.sidebar.title("🕹️ Agent Operations")
 
 if st.sidebar.button("🚀 Trigger AI Recovery Batch", type="primary", use_container_width=True):
     with st.spinner("Executing closed-loop agent recovery on failed database transactions..."):
@@ -69,24 +68,19 @@ if st.sidebar.button("🚀 Trigger AI Recovery Batch", type="primary", use_conta
 
 st.sidebar.divider()
 
-st.sidebar.markdown("### 🧭 Platform Navigation")
-st.sidebar.markdown("""
-- **📊 Executive ROI** — Financial metrics & unit economics
-- **⚡ Live Operations** — Real-time transaction ledger
-- **🧠 Agent Decision Trace** — Observable diagnostic evidence
-- **🛡️ HITL Queue** — Manual operator triage workbench
-- **🏆 Baseline Benchmarks** — 3-way empirical comparison
-- **🕸️ Fraud Network** — Graph syndicate topology
-- **🎬 Demo & Simulation** — 1-click pitch scenarios
-""")
+st.sidebar.subheader("⚙️ System Status")
+st.sidebar.markdown("🟢 **Gateway:** Test Simulation Mode")
 
 st.sidebar.divider()
-st.sidebar.markdown("### 💡 Core System Pillars")
-st.sidebar.info(
-    "1. **Observe-Reason-Act**: Closed-loop agent bounded by Pydantic schemas.\n"
-    "2. **Zero-Trust Safety Gate**: Fraud clusters bypass LLM deterministically.\n"
-    "3. **Empirical Lift**: Evaluated on held-out test data against Naive & Rules."
-)
+
+st.sidebar.subheader("🎬 Demo & Simulation")
+if st.sidebar.button("▶ Run Demo", use_container_width=True):
+    with st.spinner("Running Safe Recovery Pitch Demo..."):
+        res = requests.post(f"{API_BASE_URL}/demo/run?scenario=A")
+        if res.status_code == 200:
+            st.toast("Demo Scenario Completed: ₹12,500 Recovered!", icon="🎬")
+            st.rerun()
+
 
 # --- Navigation Tabs ---
 tab_exec, tab_ops, tab_trace, tab_queue, tab_bench, tab_graph, tab_demo = st.tabs([
