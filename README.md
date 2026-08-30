@@ -1,4 +1,4 @@
-# 💳 RazorRecover — Autonomous AI Revenue Recovery Platform
+# RazorRecover — Autonomous AI Revenue Recovery Agent
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com)
@@ -13,128 +13,148 @@
 
 ---
 
-## Executive Summary
-
-Failed and dropped payments cost Indian digital merchants over ₹25,000 Crores annually. Traditional recovery systems rely either on **naive immediate retries** (which cause high issuer decline penalties, customer churn, and dangerous retries on fraud) or **rigid static rules** (which miss salvageable high-value conversions).
-
-**RazorRecover** is an autonomous, closed-loop AI revenue recovery platform designed specifically for Razorpay's payment infrastructure. It unifies:
-1. **Zero-Trust Networked Fraud Detection (Graph Theory)** — Isolates coordinated syndicate rings and bypasses LLM inference deterministically.
-2. **Calibrated Machine Learning Risk Scoring (Random Forest)** — Predicts payment recapture probability from customer tenure, past success rates, and failure dynamics.
-3. **Structured Closed-Loop AI Reasoning (Gemini 1.5 Flash)** — Selects precision recovery strategies using bounded Pydantic schemas.
-4. **Deterministic Policy Engine & Idempotent State Machine** — Strictly enforces financial caps, cooldowns, and mandatory human review before execution.
-5. **Human-in-the-Loop (HITL) Queue & Immutable Audit Ledger** — Provides 1-click support triage and complete operational unit economics tracking.
+RazorRecover is an autonomous, closed-loop revenue recovery prototype designed for digital payment gateways. When payments fail due to temporary network timeouts, balance deficits, or dropped checkouts, RazorRecover investigates customer context, scores recovery probability, detects networked fraud, and executes bounded recovery actions while strictly governed by deterministic financial guardrails and human review.
 
 ---
 
-## 🏛️ System Architecture
+## 1. Problem
+
+Payment failures represent a significant source of lost revenue for online merchants. Revenue leakage occurs primarily through:
+- **Transient Gateway & Network Timeouts:** Temporary bank switch or issuer downtime where immediate or delayed re-attempt succeeds.
+- **Temporary Insufficient Funds:** Customer balances that replenish within hours or days, where delayed retry avoids immediate card decline penalties.
+- **Checkout & OTP Abandonment:** Customers dropping off before completing 3D Secure verification, salvageable via dynamic payment links.
+- **Indiscriminate Retries & Fraud Vulnerability:** Naive retry strategies repeatedly hit failed or fraudulent cards, triggering gateway fines, merchant penalties, and increased chargeback risk.
+
+---
+
+## 2. Solution
+
+RazorRecover replaces rigid retry schedules and unconstrained LLM calls with a **bounded, closed-loop recovery workflow**:
+
+1. **Observe & Ingest:** Listens for payment failure events via webhooks or batch streams.
+2. **Entity Network Investigation:** Bipartite graph analysis checks shared IP subnets and device fingerprints to isolate fraud syndicates.
+3. **ML Probability Scoring:** Random Forest model estimates payment recapture likelihood based on customer tenure, failure type, and payment method.
+4. **Structured AI Diagnosis:** Gemini 1.5 Flash agent diagnoses failure context and recommends an intervention using strict Pydantic schemas.
+5. **Deterministic Policy Validation:** Central policy engine verifies financial caps, retry limits, and risk thresholds before any tool executes.
+6. **Bounded Tool Execution:** Dispatches retry or recovery link via payment simulator.
+7. **Observe Result & Audit:** Observes gateway outcome, advances the transaction state machine, and records an immutable audit log.
+
+---
+
+## 3. System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["1. Real-Time Ingestion Layer"]
-        A[Payment Failure Webhook / Batch Stream] --> B[Transaction Record & Context Ingest]
+    subgraph Ingestion ["1. Event Ingestion"]
+        A[Payment Failure Webhook / Batch] --> B[Ingest & Record Transaction]
     end
 
     subgraph Defense ["2. Zero-Trust Security Gate"]
         B --> C{Bipartite Fraud Graph Engine}
-        C -- "Syndicate Node Detected (Shared IP/Device)" --> D[Bypass LLM: Hard Escalation]
-        D --> HITL[Human-in-the-Loop Escalation Queue]
+        C -- "Syndicate Node Detected" --> D[Bypass LLM: Hard Policy Block]
+        D --> HITL[Human-in-the-Loop Queue]
         C -- "Clean Network" --> E[ML Risk Probability Model]
     end
 
-    subgraph Intelligence ["3. Agentic Diagnosis & Policy"]
-        E --> F[Customer Behavioral Profiling]
-        F --> G[Gemini 1.5 Flash Decision Agent]
+    subgraph Intelligence ["3. Agent Reasoning & Policy Validation"]
+        E --> F[Customer History & Context]
+        F --> G[Gemini 1.5 Flash Agent]
         G --> H[Structured Pydantic Action Schema]
         H --> I{Deterministic Policy Engine}
-        I -- "Violates Policy / High Value / Exhausted" --> HITL
+        I -- "Exceeds Limit / High Value / Exhausted" --> HITL
         I -- "Policy Approved" --> J[Bounded Action Dispatcher]
     end
 
     subgraph Execution ["4. Closed-Loop Execution & Audit"]
-        J --> K[Razorpay Gateway Simulator]
+        J --> K[Payment Gateway Simulator]
         K --> L[State Machine Transition: AT_RISK ➔ RECOVERED]
         L --> M[Immutable Audit Event Ledger]
-        M --> N[Streamlit Executive Control Center]
+        M --> N[Streamlit Control Center]
     end
 ```
 
+> **Key Architectural Principle:** The LLM proposes recovery decisions based on context. Deterministic policy rules govern whether actions are permitted.
+
 ---
 
-## 🏆 Reproducible Empirical Baseline Evaluation
+## 4. Safety & Policy Guardrails
 
-To prove measurable revenue recovery superiority, **RazorRecover** was benchmarked on a standardized, held-out evaluation dataset of **500 failed payment transactions** containing realistic mix ratios of network timeouts, insufficient funds, checkout drop-offs, and coordinated fraud syndicate clusters.
+RazorRecover is designed with defense-in-depth to prevent autonomous high-value losses, infinite loops, and unvetted actions:
 
-Every metric below is generated by running `python -m core.benchmark` or via `GET /api/benchmarks`:
+- **Deterministic Fraud Graph Gate:** Bipartite BFS traversal over shared entity infrastructure. Confirmed fraud links trigger a hard block, **bypassing the LLM completely** to prevent prompt manipulation and save token spend.
+- **Autonomous Financial Caps:** Automated recovery is capped at ₹15,000. Transactions ≥ ₹50,000 strictly require human operator review.
+- **Retry Limits:** Hard cap of 3 attempts per transaction with minimum cooldown periods.
+- **Idempotent Execution:** Every recovery action produces a deterministic SHA-256 hash `idempotency_key = hash(txn_id, retry_count, action)` preventing duplicate charge attempts.
+- **Finite Lifecycle State Machine:** Enforces unidirectional state progression: `AT_RISK` ➔ `DIAGNOSING` ➔ `ACTION_PENDING` ➔ `ACTION_EXECUTED` ➔ `RECOVERED` / `ESCALATED` / `STOPPED`.
+- **Deterministic Offline Fallback:** If the external LLM API is unavailable, the system automatically degrades to the local rule-based policy engine with zero downtime.
 
-| Metric | Baseline 1: Naive Retry | Baseline 2: Static Rules | RazorRecover AI Agent | Performance Lift / Advantage |
+---
+
+## 5. Simulated Baseline Evaluation
+
+To evaluate recovery performance, RazorRecover was benchmarked against two baseline strategies on a standardized held-out evaluation dataset of **500 synthetic payment failure transactions**.
+
+All figures below are generated by running `python evaluate.py` or via `GET /api/benchmarks`:
+
+| Metric | Baseline 1: Naive Retry | Baseline 2: Static Rules | RazorRecover AI Agent | Measured Advantage |
 | :--- | :---: | :---: | :---: | :---: |
-| **Total Revenue at Risk** | ₹44,94,280.41 | ₹44,94,280.41 | **₹44,94,280.41** | Identical held-out test batch |
-| **Revenue Recovered (GMV)** | ₹11,91,411.63 | ₹14,31,430.21 | **₹14,30,988.84** | **+₹2,39,577.21** vs. Naive |
-| **Intervention Recovery Rate** | 29.20% | 47.63% | **63.88%** | **+16.25% Precision Lift** |
+| **Simulated Revenue at Risk** | ₹44,94,280.41 | ₹44,94,280.41 | **₹44,94,280.41** | Identical test dataset |
+| **Simulated Revenue Recovered**| ₹11,91,411.63 | ₹14,31,430.21 | **₹14,30,988.84** | **+₹2,39,577.21** vs. Naive |
+| **Recovery Rate (%)** | 29.20% | 47.63% | **63.88%** | **+16.25% Precision Lift** |
 | **Successful Recoveries** | 146 | 181 | **191** | **+45 Captures** vs. Naive |
-| **Failed Gateway Attempts** | 354 | 199 | **108** | **-246 Failed Retries** (-69.5%) |
-| **Unnecessary Retries on Fraud** | 173 *(Dangerous)* | 0 | **0** | **100% Zero-Trust Isolation** |
-| **Fraud Syndicate Nodes Blocked**| 0 | 42 | **53** | **+11 Syndicate Nodes** isolated via Graph |
-| **Human Escalations (HITL)** | 0 | 120 | **201** | Risk-managed edge triage |
-| **Total Operational Cost** | ₹25.00 | ₹19.00 | **₹16.29** | Minimal Gemini API token spend |
-| **Net Merchant Value Created** | ₹11,91,386.63 | ₹14,31,411.21 | **₹14,30,972.55** | **Highest Precision & Net ROI** |
+| **Failed Gateway Retries** | 354 | 199 | **108** | **-246 Failed Retries** (-69.5%) |
+| **Unnecessary Retries on Fraud**| 173 *(High Risk)* | 0 | **0** | **100% Zero-Trust Blocked** |
+| **Fraud Syndicate Nodes Blocked**| 0 | 42 | **53** | **+11 Nodes** via Graph |
+| **Human Escalations (HITL)** | 0 | 120 | **201** | Bounded edge review |
+| **Estimated Operational Cost** | ₹25.00 | ₹19.00 | **₹16.29** | Minimal Gemini token spend |
+| **Simulated Net Recovered Value**| ₹11,91,386.63 | ₹14,31,411.21 | **₹14,30,972.55** | **Optimal Precision & Net Margin**|
 
-> **Key Takeaway:** While Naive Retry blindly retries 173 fraudulent transactions (risking severe gateway fines and chargebacks), RazorRecover achieves a **63.88% precision recovery rate** with **zero retries on fraud** and reduces wasteful failed gateway attempts by **69.5%**.
+> **Note on Evaluation:** All benchmark metrics are calculated from synthetic evaluation batches in test mode. RazorRecover does not claim to have processed live customer payments.
 
 ---
 
-## 🔬 Machine Learning Risk Model Evaluation
+## 6. Machine Learning Risk Model
 
-The recovery probability engine uses a **Multi-Feature Random Forest Classifier** evaluated using an **80/20 train/test split** (2,400 train samples / 600 held-out test samples):
+The recovery probability model uses a **Multi-Feature Random Forest Classifier** evaluated using an **80/20 train/test split** (2,400 training samples / 600 held-out test samples):
 
 - **Held-Out Test Accuracy:** `71.17%`
 - **Held-Out Test Precision:** `69.64%`
 - **Held-Out Test Recall:** `59.77%`
 - **Held-Out Test F1 Score:** `0.6433`
 - **ROC-AUC Score:** `0.7992`
-
-### Feature Importance Breakdown:
-1. `failure_reason_code` (`51.78%`) — Primary deterministic driver of transient vs. permanent decline.
-2. `amount` (`14.11%`) — Low/medium tickets recover at higher velocity on delayed retry.
-3. `past_success_rate` (`9.66%`) — Strong indicator of customer creditworthiness.
-4. `retry_count` (`10.22%`) — Diminishing returns after attempt #2.
-5. `customer_tenure_months` (`7.71%`) — Established customer relationship resilience.
-6. `past_failed_attempts` (`3.65%`) — Historical failure friction.
-7. `payment_method_code` (`2.87%`) — Channel mechanics (UPI vs Card vs Netbanking vs Mandate).
+- **Feature Importances:** `failure_reason_code` (51.8%), `amount` (14.1%), `past_success_rate` (9.7%), `retry_count` (10.2%), `customer_tenure_months` (7.7%).
 
 ---
 
-## 🛡️ Zero-Trust Security & Policy Guardrails
+## 7. Demo & Simulation Scenarios
 
-RazorRecover strictly prevents infinite loops, autonomous high-value losses, and LLM hallucination risk through defense-in-depth:
+The platform provides reproducible demo scenarios accessible via the dashboard **"Demo & Simulation"** tab or via `POST /api/demo/run`:
 
-1. **Deterministic Fraud Graph Gate:** Bipartite BFS traversal across shared IP subnets and device hardware hashes. Known fraud nodes trigger a **hard policy stop**, bypassing the LLM entirely and saving token costs while neutralizing prompt injection risk.
-2. **Hard Financial Caps:** Autonomous recovery is capped at ₹15,000. Transactions ≥ ₹50,000 strictly require human operator authorization.
-3. **Idempotent Execution:** Every action generates a deterministic SHA-256 hash `idempotency_key = hash(txn_id, retry_count, action)`.
-4. **Finite Lifecycle State Machine:** Enforces acyclic progression: `AT_RISK` ➔ `DIAGNOSING` ➔ `ACTION_PENDING` ➔ `ACTION_EXECUTED` ➔ `RECOVERED` / `ESCALATED` / `STOPPED`.
-5. **Deterministic Fallback Engine:** If the Gemini API is unreachable, the system automatically degrades to the deterministic recovery policy engine with zero downtime.
+### Scenario A: Autonomous Revenue Recovery
+- **Context:** Payment failure of ₹12,500 due to `insufficient_balance` on customer `cust_vip_44`.
+- **Diagnosis:** Customer tenure (24 months), past success rate (94%), clean device trust score.
+- **Intervention:** Agent selects `DELAYED_RETRY`. Policy approves. Gateway simulator captures ₹12,500.
 
----
-
-## 🎯 5-Minute Pitch Walkthrough
-
-The platform includes 1-click deterministic pitch scenarios accessible directly from the Streamlit sidebar:
-
-### Scenario A: Legitimate High-Value Recovery
-1. **Trigger:** Customer `cust_vip_44` experiences payment failure of **₹12,500** due to `insufficient_balance`.
-2. **Diagnosis:** Agent observes 24-month customer tenure, 94% historical success rate, and clean device reputation.
-3. **Intervention:** Gemini agent recommends `DELAYED_RETRY` (Confidence: 0.88) to give customer funds time to replenish.
-4. **Result:** Bounded retry dispatched via simulator. Payment captured successfully. Dashboard logs **₹12,500 RECOVERED**.
-
-### Scenario B: Coordinated Fraud Syndicate Block
-1. **Trigger:** Transaction `demo_txn_fraud_909` of **₹24,500** arrives from IP `198.51.100.42`.
-2. **Investigation:** Bipartite graph reveals device `dev_rooted_fraud_99` connects to 4 known fraud nodes.
-3. **Safety Gate:** Policy engine triggers `FRAUD_GRAPH_SYNDICATE_BLOCK`. **LLM is completely bypassed.**
-4. **Result:** Routed to Human-in-the-Loop Escalation Queue. Zero tokens spent. Audit log recorded with actor `SAFETY_GUARDRAIL`.
+### Scenario B: Fraud Syndicate Safety Gate
+- **Context:** High-value failure of ₹24,500 originating from known syndicate IP `198.51.100.42`.
+- **Diagnosis:** Graph engine identifies device `dev_rooted_fraud_99` connected to confirmed fraud nodes.
+- **Safety Gate:** Policy triggers `FRAUD_GRAPH_SYNDICATE_BLOCK`. **LLM is bypassed.** Escalated to HITL queue.
 
 ---
 
-## 🚀 Quickstart & Setup Guide
+## 8. Technology Stack
+
+- **Backend:** Python 3.12, FastAPI, Uvicorn, Pydantic V2
+- **Agent Reasoning:** Google GenAI SDK (Gemini 1.5 Flash) with deterministic rule-based fallback
+- **Machine Learning:** Scikit-Learn (Random Forest), NumPy, Pandas
+- **Graph Engine:** NetworkX & bipartite in-memory adjacency index
+- **Database:** SQLAlchemy ORM, SQLite (local demo default) / PostgreSQL (production compatible)
+- **Frontend Dashboard:** Streamlit, Altair
+- **Testing & Tooling:** Pytest (20 automated tests), Docker, Docker Compose
+
+---
+
+## 9. Setup & Local Execution
 
 ### 1. Clone & Setup Environment
 ```bash
@@ -151,11 +171,11 @@ pip install -r requirements.txt
 ```
 
 ### 2. Environment Configuration
-Create a `.env` file from `.env.example`:
+Create a `.env` file from the provided template:
 ```bash
 cp .env.example .env
 ```
-*(Optional)* Add your `GEMINI_API_KEY`. If omitted, RazorRecover runs smoothly in deterministic offline fallback mode.
+*(Optional)* Add your `GEMINI_API_KEY`. If omitted, RazorRecover runs smoothly in offline fallback mode.
 
 ### 3. Generate Database & Train Risk Model
 ```bash
@@ -167,13 +187,18 @@ python generate_data.py
 pytest -v
 ```
 
-### 5. Launch Backend & Control Center
+### 5. Run Standalone Baseline Benchmark
+```bash
+python evaluate.py
+```
+
+### 6. Launch Application
 In Terminal 1 (FastAPI Backend):
 ```bash
 uvicorn api.main:app --reload --port 8000
 ```
 
-In Terminal 2 (Streamlit Dashboard):
+In Terminal 2 (Streamlit Control Center):
 ```bash
 streamlit run dashboard/app.py
 ```
@@ -181,53 +206,24 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 ---
 
-## 📂 Project Structure
+## 10. Docker Deployment
 
+To launch all services via Docker:
+```bash
+docker compose up --build
 ```
-razor-recover/
-├── api/
-│   ├── main.py                 # FastAPI application initialization & CORS
-│   ├── routes.py               # REST & Webhook endpoints (/process-batch, /webhooks, /demo, /benchmarks)
-│   ├── schemas.py              # Pydantic validation models
-│   └── razorpay_client.py      # Gateway interface wrapper
-├── core/
-│   ├── agent.py                # Closed-loop Gemini agent with structured Pydantic schemas & fallback
-│   ├── policy.py               # Central deterministic recovery policy engine & safety caps
-│   ├── stopping_rules.py       # Hard guardrails & safety stopping rules
-│   ├── state_machine.py        # Transaction lifecycle state machine & idempotency manager
-│   ├── risk_model.py           # ML Random Forest risk scorer with held-out train/test metrics
-│   ├── fraud_graph.py          # Bipartite BFS graph engine for syndicated fraud cluster isolation
-│   ├── simulator.py            # Realistic payment gateway & webhook event simulator
-│   ├── tools.py                # Bounded tool execution registry
-│   ├── demo.py                 # Deterministic pitch scenarios (Scenario A & Scenario B)
-│   └── benchmark.py            # Reproducible 3-way evaluation framework
-├── dashboard/
-│   └── app.py                  # RazorRecover Control Center (Executive ROI, Ops, Trace, HITL, Benchmarks)
-├── database/
-│   ├── models.py               # SQLAlchemy ORM models (Transaction, AuditLog)
-│   └── session.py              # Database connection & session factory
-├── data/                       # Synthetic dataset storage
-├── tests/
-│   ├── test_policy_and_guardrails.py
-│   ├── test_state_machine_and_idempotency.py
-│   ├── test_agent_and_tools.py
-│   ├── test_fraud_graph.py
-│   └── test_e2e_pipeline.py
-├── generate_data.py            # Synthetic payment generation script
-├── requirements.txt            # Python dependencies
-├── pytest.ini                  # Pytest configuration
-└── README.md                   # Submission documentation
-```
+This builds and starts the FastAPI backend on port `8000` and the Streamlit dashboard on port `8501`.
 
 ---
 
-## 🔍 Honest Engineering Disclosures
+## 11. Limitations & Disclosures
 
-1. **Synthetic Data Disclosure:** All transaction datasets, IP addresses, device identifiers, and customer profiles in this repository are synthetically generated for benchmark reproducibility and privacy compliance.
-2. **Simulated Gateway Execution:** Payment retries and dynamic links are processed via the `RazorpaySimulator` marked as `EXECUTION_MODE: SIMULATED_TEST_MODE`.
-3. **ROI Cost Attribution:** Net ROI calculations honestly factor in estimated Gemini 1.5 Flash token spend (~₹0.0000135/token) plus nominal gateway network processing fees (₹0.05/retry).
+- **Synthetic Data:** All transaction logs, IP addresses, and customer profiles are synthetically generated for privacy compliance and reproducible evaluation.
+- **Simulated Payment Gateway:** Payment retries and dynamic links are simulated via `core/simulator.py` under `EXECUTION_MODE: SIMULATED_TEST_MODE`.
+- **Database Scope:** SQLite is used as the default lightweight database for zero-configuration local demos. PostgreSQL is supported via `DATABASE_URL`.
+- **Prototype Status:** RazorRecover is a prototype built for the Razorpay AI Builder Program and is not deployed to live payment infrastructure.
 
 ---
 
 ## 📜 License
-MIT License. Built with passion for the **Razorpay AI Builder Program 2026**.
+MIT License. Built for the **Razorpay AI Builder Internship Program 2026**.
