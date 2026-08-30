@@ -4,6 +4,7 @@ Production-grade dashboard showcasing Executive ROI, Live Operations,
 Agent Decision Traces, HITL Exception Queue, Fraud Topology, and Empirical Benchmarks.
 """
 
+import os
 import streamlit as st
 import requests
 import pandas as pd
@@ -17,7 +18,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-API_BASE_URL = "http://127.0.0.1:8000/api"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000/api").rstrip("/")
+
+
 
 # --- Header & Pitch Banner ---
 st.markdown("""

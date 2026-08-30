@@ -1,0 +1,47 @@
+{
+  "test_sample_size": 500,
+  "comparison": [
+    {
+      "strategy": "Naive Immediate Retry",
+      "total_at_risk": 4494280.41,
+      "revenue_recovered": 1191411.63,
+      "recovery_rate_pct": 29.2,
+      "successful_recoveries": 146,
+      "failed_attempts": 354,
+      "unnecessary_retries_on_fraud": 173,
+      "fraud_isolated": 0,
+      "human_escalations": 0,
+      "total_operational_cost": 25.0,
+      "net_recovered_value": 1191386.63
+    },
+    {
+      "strategy": "Static Heuristic Rules",
+      "total_at_risk": 4494280.41,
+      "revenue_recovered": 1431430.21,
+      "recovery_rate_pct": 47.63,
+      "successful_recoveries": 181,
+      "failed_attempts": 199,
+      "unnecessary_retries_on_fraud": 0,
+      "fraud_isolated": 42,
+      "human_escalations": 120,
+      "total_operational_cost": 19.0,
+      "net_recovered_value": 1431411.21
+    },
+    {
+      "strategy": "RazorRecover AI Agent",
+      "total_at_risk": 4494280.41,
+      "revenue_recovered": 1430988.84,
+      "recovery_rate_pct": 63.88,
+      "successful_recoveries": 191,
+      "failed_attempts": 108,
+      "unnecessary_retries_on_fraud": 0,
+      "fraud_isolated": 53,
+      "human_escalations": 201,
+      "total_operational_cost": 16.291,
+      "net_recovered_value": 1430972.55
+    }
+  ],
+  "lift_over_naive_inr": 239577.21,
+  "lift_over_rules_inr": -441.37,
+  "relative_recovery_rate_lift_pct": 16.25
+}

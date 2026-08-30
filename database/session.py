@@ -1,15 +1,31 @@
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base
+from dotenv import load_dotenv
 
-# We will use a local SQLite file named razor_recover.db
-SQLALCHEMY_DATABASE_URL = "sqlite:///./razor_recover.db"
+load_dotenv()
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+# Dual Database Support: SQLite (Local/Demo) & PostgreSQL (Production/Docker)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./razor_recover.db")
+
+# SQLAlchemy 2.0 Compatibility: convert postgres:// to postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL, 
+        connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20
+    )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 Base = declarative_base()
 
 def get_db():
@@ -17,4 +33,4 @@ def get_db():
     try:
         yield db
     finally:
-        db.close()
+        db.close()

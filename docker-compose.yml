@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    container_name: razorrecover-api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./razor_recover.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - EXECUTION_MODE=SIMULATED_TEST_MODE
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  dashboard:
+    build: .
+    container_name: razorrecover-dashboard
+    command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://api:8000/api
+    depends_on:
+      - api
+    restart: unless-stopped
