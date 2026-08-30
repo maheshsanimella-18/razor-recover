@@ -1,4 +1,4 @@
-# RazorRecover — Autonomous AI Revenue Recovery Agent
+# 💳 RazorRecover — Autonomous AI Revenue Recovery Agent
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com)
