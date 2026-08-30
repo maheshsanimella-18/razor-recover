@@ -29,16 +29,15 @@ def get_customer_history(customer_id: str, db: Session) -> Dict[str, Any]:
     
     successful = sum(1 for t in txns if t.status in ["success", "recovered"])
     success_rate = successful / total_txns
-    first_txn = min(txns, key=lambda x: x.created_at or datetime.utcnow())
+    now_utc = datetime.now(timezone.utc)
+    first_txn = min(txns, key=lambda x: x.created_at.replace(tzinfo=timezone.utc) if (x.created_at and x.created_at.tzinfo is None) else (x.created_at or now_utc))
     first_created = first_txn.created_at
     if first_created is None:
         tenure_months = 12
     else:
-        # Standardize to naive UTC for safe subtraction
-        if hasattr(first_created, "tzinfo") and first_created.tzinfo is not None:
-            first_created = first_created.replace(tzinfo=None)
-        now_naive = datetime.utcnow()
-        days_diff = max(0, (now_naive - first_created).days)
+        if first_created.tzinfo is None:
+            first_created = first_created.replace(tzinfo=timezone.utc)
+        days_diff = max(0, (now_utc - first_created).days)
         tenure_months = max(1, int(days_diff / 30)) + 6
     
     tier = "VIP" if success_rate > 0.85 and total_txns >= 3 else ("STANDARD" if success_rate >= 0.5 else "HIGH_RISK")
