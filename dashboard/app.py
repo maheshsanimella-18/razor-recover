@@ -6,6 +6,7 @@ and Interactive Deterministic Demos.
 """
 
 import os
+import time
 import streamlit as st
 import requests
 import pandas as pd
@@ -39,6 +40,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Helper functions to fetch data
+@st.cache_data(ttl=60)
 def fetch_api(endpoint: str, timeout: int = 5):
     try:
         res = requests.get(f"{API_BASE_URL}/{endpoint}", timeout=timeout)
@@ -54,12 +56,15 @@ roi_data = fetch_api("roi-metrics")
 st.sidebar.title("🕹️ Agent Operations")
 
 if st.sidebar.button("🚀 Trigger AI Recovery Batch", type="primary", use_container_width=True):
-    with st.spinner("Executing closed-loop agent recovery on failed database transactions..."):
+    st.toast("Analyzing transaction networks and querying Gemini AI policy engine...", icon="⏳")
+    with st.spinner("Processing batch..."):
+        time.sleep(1.5)
         try:
             res = requests.post(f"{API_BASE_URL}/process-batch", timeout=60)
             if res.status_code == 200:
                 data = res.json()
                 st.sidebar.success(f"✅ Recovered ₹{data['total_revenue_recovered']:,.2f} ({data['recovery_rate_pct']}%)")
+                time.sleep(1) # Brief pause before rerun
                 st.rerun()
             else:
                 st.sidebar.error(f"API Error: {res.text}")
@@ -181,21 +186,24 @@ with tab_trace:
     selected_txn = st.text_input("Enter Transaction ID to Inspect", value="demo_txn_safe_101")
     
     if st.button("Inspect Decision Trace", key="btn_inspect"):
-        logs_for_txn = [l for l in (logs or []) if l['transaction_id'] == selected_txn]
-        if logs_for_txn:
-            latest = logs_for_txn[0]
-            st.success(f"Audit Trail Found for `{selected_txn}`")
-            
-            t1, t2, t3, t4 = st.columns(4)
-            t1.metric("Actor", latest.get("actor", "AI_AGENT"))
-            t2.metric("Decision", latest.get("agent_decision", "N/A"))
-            t3.metric("Event Type", latest.get("event_type", "N/A"))
-            t4.metric("Recovered", f"₹{latest.get('amount_recovered', 0.0):,.2f}")
+        st.toast("Retrieving immutable audit ledger and decision trace...", icon="⏳")
+        with st.spinner("Fetching trace..."):
+            time.sleep(1.0)
+            logs_for_txn = [l for l in (logs or []) if l['transaction_id'] == selected_txn]
+            if logs_for_txn:
+                latest = logs_for_txn[0]
+                st.success(f"Audit Trail Found for `{selected_txn}`")
+                
+                t1, t2, t3, t4 = st.columns(4)
+                t1.metric("Actor", latest.get("actor", "AI_AGENT"))
+                t2.metric("Decision", latest.get("agent_decision", "N/A"))
+                t3.metric("Event Type", latest.get("event_type", "N/A"))
+                t4.metric("Recovered", f"₹{latest.get('amount_recovered', 0.0):,.2f}")
 
-            st.markdown("#### 📜 Diagnostic & Policy Breakdown")
-            st.info(f"**Evidence Trace:**\n\n{latest.get('reasoning')}")
-        else:
-            st.warning(f"No specific logs found for '{selected_txn}'. Try running a scenario from the 'Demo & Simulation' tab!")
+                st.markdown("#### 📜 Diagnostic & Policy Breakdown")
+                st.info(f"**Evidence Trace:**\n\n{latest.get('reasoning')}")
+            else:
+                st.warning(f"No specific logs found for '{selected_txn}'. Try running a scenario from the 'Demo & Simulation' tab!")
 
 # =========================================================
 # TAB 4: HUMAN-IN-THE-LOOP (HITL) QUEUE
@@ -231,19 +239,31 @@ with tab_queue:
                 btn_col1, btn_col2, btn_col3 = st.columns(3)
                 
                 if btn_col1.button("✅ Approve & Retry", key=f"hitl_ret_{item['id']}", use_container_width=True):
-                    requests.post(f"{API_BASE_URL}/escalation-queue/{item['id']}/action", json={"action": "APPROVE_RETRY", "reviewer_notes": "Approved by support lead"})
-                    st.toast(f"Retry triggered for {item['id']}", icon="✅")
-                    st.rerun()
+                    st.toast("Updating immutable audit ledger and dispatching retry...", icon="⏳")
+                    with st.spinner("Approving..."):
+                        time.sleep(1.5)
+                        requests.post(f"{API_BASE_URL}/escalation-queue/{item['id']}/action", json={"action": "APPROVE_RETRY", "reviewer_notes": "Approved by support lead"})
+                        st.success(f"Retry triggered for {item['id']}")
+                        time.sleep(1)
+                        st.rerun()
 
                 if btn_col2.button("✉️ Send Payment Link", key=f"hitl_lnk_{item['id']}", use_container_width=True):
-                    requests.post(f"{API_BASE_URL}/escalation-queue/{item['id']}/action", json={"action": "APPROVE_PAYMENT_LINK", "reviewer_notes": "Recovery link sent"})
-                    st.toast(f"Link sent for {item['id']}", icon="✉️")
-                    st.rerun()
+                    st.toast("Generating dynamic payment link and updating state...", icon="⏳")
+                    with st.spinner("Sending link..."):
+                        time.sleep(1.5)
+                        requests.post(f"{API_BASE_URL}/escalation-queue/{item['id']}/action", json={"action": "APPROVE_PAYMENT_LINK", "reviewer_notes": "Recovery link sent"})
+                        st.success(f"Link sent for {item['id']}")
+                        time.sleep(1)
+                        st.rerun()
 
                 if btn_col3.button("🛑 Reject / Block", key=f"hitl_rej_{item['id']}", type="secondary", use_container_width=True):
-                    requests.post(f"{API_BASE_URL}/escalation-queue/{item['id']}/action", json={"action": "REJECT", "reviewer_notes": "Rejected as high risk"})
-                    st.toast(f"Blocked {item['id']}", icon="🛑")
-                    st.rerun()
+                    st.toast("Hard-blocking entity network and updating fraud ledger...", icon="⏳")
+                    with st.spinner("Blocking..."):
+                        time.sleep(1.5)
+                        requests.post(f"{API_BASE_URL}/escalation-queue/{item['id']}/action", json={"action": "REJECT", "reviewer_notes": "Rejected as high risk"})
+                        st.success(f"Blocked {item['id']}")
+                        time.sleep(1)
+                        st.rerun()
     else:
         st.success("🎉 All escalation queues are clear! No pending manual review items.")
 
@@ -356,7 +376,9 @@ with tab_demo:
         """, unsafe_allow_html=True)
         
         if st.button("▶️ Run Scenario A: Recovery", type="primary", use_container_width=True):
-            with st.spinner("Executing Scenario A (Safe Recovery Pipeline)..."):
+            st.toast("Executing bounded recovery scenario and validating policy...", icon="⏳")
+            with st.spinner("Analyzing..."):
+                time.sleep(1.5)
                 res = requests.post(f"{API_BASE_URL}/demo/run?scenario=A")
                 if res.status_code == 200:
                     data = res.json()
@@ -378,7 +400,9 @@ with tab_demo:
         """, unsafe_allow_html=True)
 
         if st.button("🛡️ Run Scenario B: Fraud Gate", use_container_width=True):
-            with st.spinner("Executing Scenario B (Fraud Block Pipeline)..."):
+            st.toast("Traversing bipartite fraud graph to isolate network...", icon="⏳")
+            with st.spinner("Analyzing graph..."):
+                time.sleep(1.5)
                 res = requests.post(f"{API_BASE_URL}/demo/run?scenario=B")
                 if res.status_code == 200:
                     data = res.json()
